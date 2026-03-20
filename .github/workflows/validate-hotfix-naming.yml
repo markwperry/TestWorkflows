@@ -1,0 +1,34 @@
+name: Validate Hotfix Naming
+
+on:
+  pull_request:
+    branches:
+      - release
+    types: [opened, synchronize, edited]
+
+jobs:
+  check-naming:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title for hotfix prefix or main source
+        run: |
+          # Allow PRs from main branch without hotfix prefix
+          if [[ "${{ github.head_ref }}" == "main" ]]; then
+            echo "✓ PR from main branch - no prefix required"
+            exit 0
+          fi
+
+          # For all other branches, require 'fix(hotfix):' prefix (case-insensitive)
+          TITLE="${{ github.event.pull_request.title }}"
+          if [[ "${TITLE,,}" =~ ^fix\(hotfix\): ]]; then
+            echo "✓ Hotfix prefix found in PR title"
+            exit 0
+          else
+            echo "✗ PRs to release from non-main branches must start with 'fix(hotfix):'"
+            echo "Example: 'fix(hotfix): Fix critical payment bug'"
+            echo ""
+            echo "This follows Conventional Commits specification:"
+            echo "  type(scope): description"
+            echo "  └─ fix(hotfix): your description here"
+            exit 1
+          fi
