@@ -34,13 +34,29 @@ jobs:
           git checkout main
           git checkout -b backport/hotfix-${{ github.event.pull_request.number }}
 
-      - name: Cherry-pick merge commit
+      - name: Cherry-pick hotfix commits
         id: cherry_pick
         continue-on-error: true
         run: |
-          # Use the merge commit SHA — the PR was merged into release, so
-          # merge_commit_sha contains the actual squashed/merged result.
-          git cherry-pick ${{ github.event.pull_request.merge_commit_sha }}
+          # Cherry-pick the original commits from the hotfix branch.
+          # Using merge_commit_sha fails because cherry-picking a merge commit
+          # without -m flag produces an empty result. Instead, we cherry-pick
+          # the actual commits from the PR's head branch.
+          #
+          # For single-commit hotfixes (typical), head.sha is the commit itself.
+          # For multi-commit hotfixes, we cherry-pick the range.
+          MERGE_BASE=$(git merge-base origin/release ${{ github.event.pull_request.head.sha }})
+          COMMITS=$(git rev-list --reverse ${MERGE_BASE}..${{ github.event.pull_request.head.sha }})
+
+          if [ -z "$COMMITS" ]; then
+            echo "No commits to cherry-pick"
+            exit 1
+          fi
+
+          for COMMIT in $COMMITS; do
+            echo "Cherry-picking $(git log --oneline -1 $COMMIT)"
+            git cherry-pick "$COMMIT"
+          done
 
       - name: Check for conflicts
         id: check_conflicts
