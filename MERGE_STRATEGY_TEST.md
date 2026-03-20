@@ -317,6 +317,62 @@ Backport Hotfix to Main — workflow run results:
 
 ---
 
+## Round 5: Hotfix Process — Fully Automated End-to-End (PR #20)
+
+### Objective
+
+Verify the complete hotfix workflow with the final fix: workflow creates the backport PR and **merges it automatically** via the `pulls.merge()` API, requiring zero manual intervention.
+
+### Step 1: Create Hotfix
+
+- **Branch**: `fix/fortune-missing-numbers` (branched from `release` at `d67ab16`)
+- **Bug**: `/fortune` lucky numbers could contain duplicates (e.g. `42, 42, 8`) because numbers were picked independently with replacement
+- **Fix**: Shuffle the number pool and take first 3 to guarantee uniqueness
+- **Commit**: `8c9d2a1 fix(hotfix): fortune endpoint returns duplicate lucky numbers`
+
+### Step 2: PR to Release — PR #20
+
+- **PR #20**: `fix(hotfix): fortune endpoint returns duplicate lucky numbers`
+- **Validation checks**: Both `check-naming` and `Validate PR title` PASSED
+
+### Step 3: Merge and Fully Automated Backport — COMPLETE SUCCESS
+
+PR #20 merged into `release`. The Backport Hotfix workflow ran to **full completion**:
+
+```
+Backport Hotfix to Main — workflow run (23356209065):
+
+✅ Cherry-pick hotfix commits     — cherry-pick -m 1 applied hotfix diff correctly
+✅ Check for conflicts            — "Cherry-pick succeeded without conflicts"
+✅ Push backport branch           — backport/hotfix-20 pushed
+✅ Create backport PR             — PR #21 created by github-actions[bot]
+                                    "Created backport PR #21"
+✅ Merge backport PR              — PR #21 merged automatically
+                                    "✅ Merged backport PR #21"
+                                    Merged at 2026-03-20T18:06:11Z (8 seconds after creation)
+```
+
+### Hotfix Test #3 (Final) Findings
+
+| Step | Expected | Actual | Status |
+|---|---|---|---|
+| Branch from `release` | Hotfix starts from production state | Branched from `release` at `d67ab16` | **PASS** |
+| `fix(hotfix):` prefix validation | PR validated | `check-naming` passed | **PASS** |
+| Conventional commit validation | PR title validated | `Validate PR title` passed | **PASS** |
+| Auto-backport cherry-pick | Hotfix diff applied to main | `cherry-pick -m 1` succeeded | **PASS** |
+| Auto-backport branch push | Branch pushed to origin | `backport/hotfix-20` pushed | **PASS** |
+| Auto-backport PR creation | PR created to main | PR #21 created by `github-actions[bot]` | **PASS** |
+| **Auto-backport PR merge** | **PR merged automatically** | **PR #21 merged 8 seconds after creation** | **PASS** |
+
+### Workflow Evolution Summary
+
+| Version | Auto-merge Approach | Result |
+|---|---|---|
+| v1 | `enablePullRequestAutoMerge` GraphQL mutation | Failed — requires branch protection rules on target branch |
+| v2 | `pulls.merge()` REST API (direct merge) | **Working** — no branch protection or repo settings needed |
+
+---
+
 ## Conclusion
 
 | Metric | Round 1: After Squash Merge | Round 2: After Regular Merge |
@@ -343,17 +399,29 @@ Backport Hotfix to Main — workflow run results:
 
 **For feature branches → `main`**: Squash merge is fine and encouraged for clean history.
 
-**For hotfixes on `release`**: The backport automation (`cherry-pick -m 1` + auto-merge PR) handles syncing hotfixes back to `main`. Key requirements:
-- Repository must enable "Allow GitHub Actions to create and approve pull requests" (Settings → Actions → General)
-- Workflow must use `cherry-pick -m 1 merge_commit_sha` to extract the hotfix diff
-- Auto-merge requires branch protection rules on `main` and "Allow auto-merge" in repo settings
+**For hotfixes on `release`**: The backport automation is fully automated — merge the hotfix to release and walk away. The workflow:
+1. Cherry-picks the merge commit with `-m 1` to extract the hotfix diff
+2. Creates a backport PR to `main`
+3. Merges it immediately via `pulls.merge()` API (no branch protection or auto-merge settings required)
+4. If conflicts exist, creates the PR but leaves it open for manual resolution
+
+**Only requirement**: Enable "Allow GitHub Actions to create and approve pull requests" in Settings → Actions → General.
 
 ### Workflow Iterations
 
-The backport cherry-pick approach went through three iterations before working correctly:
+The backport workflow went through multiple iterations to reach the final working state:
+
+**Cherry-pick approach** (3 iterations):
 
 | Version | Approach | Problem |
 |---|---|---|
 | v1 | `cherry-pick merge_commit_sha` | Merge commits have 2 parents; without `-m`, git produces empty cherry-pick |
 | v2 | `rev-list head.sha` range | After PR merge, commits are reachable from release, making range empty |
 | v3 | `cherry-pick -m 1 merge_commit_sha` | **Working** — `-m 1` diffs against first parent, extracting hotfix changes |
+
+**Auto-merge approach** (2 iterations):
+
+| Version | Approach | Problem |
+|---|---|---|
+| v1 | `enablePullRequestAutoMerge` GraphQL | Requires branch protection rules on `main` — not always configured |
+| v2 | `pulls.merge()` REST API (direct merge) | **Working** — no special settings required, merges immediately |
