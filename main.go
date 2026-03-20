@@ -39,6 +39,17 @@ func setupRouter() *gin.Engine {
 		})
 	})
 
+	r.GET("/hillbilly", func(c *gin.Context) {
+		text := c.Query("text")
+		if text == "" {
+			text = "Hello everyone, I am going to go fishing over there"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"original":   text,
+			"translated": translateToHillbilly(text),
+		})
+	})
+
 	r.GET("/version", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"version":    version,
