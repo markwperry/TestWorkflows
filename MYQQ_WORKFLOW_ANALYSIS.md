@@ -128,17 +128,25 @@ on:
 # Skips tag (tag happens after E2E on release)
 ```
 
-**Verdict: WORKS, BUT CONFUSING FLOW** — This workflow bumps the version and creates a PR **back to main** (not to release). The flow is:
+**Verdict: WORKS — CORRECT APPROACH** — This workflow bumps the version and creates a PR **back to main** (not directly to release). The flow is:
 
-1. Run `prepare-release` on main → creates `chore/release-vX.Y.Z` branch with version bump
-2. Merge that PR to main (version bump lands on main)
-3. Then manually create a PR from main → release
+1. Run `prepare-release` on main → `standard-version` reads commit history on main, bumps `package.json`, generates CHANGELOG
+2. Merge that PR to main (version bump + CHANGELOG land on main)
+3. Create a PR from main → release (carries the bumped version)
 4. E2E tests run on the release PR
-5. Merge to release → tag-release auto-tags
+5. Merge to release (merge commit) → `tag-release` sees new version in `package.json` → creates tag → triggers build/deploy
 
-This is functional but the extra step (PR to main for version bump, then separate PR to release) adds a manual step. In TestWorkflows, we used `TriPSs/conventional-changelog-action` directly on the release branch which is simpler.
+**Why the PR-to-main step is necessary (not optional):**
+- `standard-version` generates the CHANGELOG from conventional commits — those commits live on `main`, so the tool must run there
+- `tag-release.yaml` compares `package.json` version to existing git tags — if they match, it skips tagging. The bumped version **must** be in `package.json` when it reaches `release`
+- The version bump on `main` ensures that `main` and `release` have consistent version state after the merge commit
 
-**Assessment:** Works correctly. Added in PR #2127. Not broken, not unnecessarily complex — just a different (more cautious) approach to versioning.
+**Why this doesn't cause sync issues:**
+- Step 3 uses a **regular merge commit** (main → release), which creates a two-parent commit linking both branches
+- As proven in the TestWorkflows merge strategy test, this merge commit preserves the shared ancestry — no back-sync is ever needed
+- The next release PR will correctly show only new commits since this merge point
+
+**Assessment:** Works correctly. Added in PR #2127. The two-step process (PR to main for version bump, then PR to release) is the right approach given the constraints of `standard-version`, CHANGELOG generation, and `tag-release` version detection.
 
 ---
 
