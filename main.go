@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -35,8 +36,14 @@ func setupRouter() *gin.Engine {
 	})
 
 	r.GET("/health", func(c *gin.Context) {
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
 		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
+			"status":    "ok",
+			"version":   version,
+			"goVersion": runtime.Version(),
+			"memAlloc":  memStats.Alloc,
+			"goroutines": runtime.NumGoroutine(),
 		})
 	})
 
