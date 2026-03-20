@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 BUILD_VERSION="${BUILD_VERSION:-dev}"
