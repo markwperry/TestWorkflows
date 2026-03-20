@@ -24,9 +24,14 @@ var luckyNumbers = []int{4, 8, 15, 16, 23, 42, 69, 420, 1337}
 
 func getRandomFortune() (string, []int) {
 	fortune := fortunes[rand.Intn(len(fortunes))]
-	nums := make([]int, 3)
-	for i := range nums {
-		nums[i] = luckyNumbers[rand.Intn(len(luckyNumbers))]
-	}
+
+	// Shuffle and pick first 3 to guarantee unique lucky numbers
+	shuffled := make([]int, len(luckyNumbers))
+	copy(shuffled, luckyNumbers)
+	rand.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+	nums := shuffled[:3]
+
 	return fmt.Sprintf("%s Lucky numbers: %d, %d, %d", fortune, nums[0], nums[1], nums[2]), nums
 }
