@@ -39,6 +39,14 @@ func setupRouter() *gin.Engine {
 		})
 	})
 
+	r.GET("/fortune", func(c *gin.Context) {
+		fortune, luckyNums := getRandomFortune()
+		c.JSON(http.StatusOK, gin.H{
+			"fortune":      fortune,
+			"luckyNumbers": luckyNums,
+		})
+	})
+
 	r.GET("/version", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"version":    version,
