@@ -8,15 +8,15 @@ on:
 
 jobs:
   backport:
-    # Only run if PR was merged and title starts with 'fix(hotfix):' (case-insensitive)
+    # Only run on release branch, if PR was merged and title starts with 'fix(hotfix):'
     if: |
+      github.base_ref == 'release' &&
       github.event.pull_request.merged == true &&
-      contains(lower(github.event.pull_request.title), 'fix(hotfix):')
+      contains(github.event.pull_request.title, 'fix(hotfix):')
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-      issues: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,26 +34,33 @@ jobs:
           git checkout main
           git checkout -b backport/hotfix-${{ github.event.pull_request.number }}
 
-      - name: Cherry-pick commits
+      - name: Cherry-pick merge commit
         id: cherry_pick
         continue-on-error: true
         run: |
-          git cherry-pick ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+          # Use the merge commit SHA — the PR was merged into release, so
+          # merge_commit_sha contains the actual squashed/merged result.
+          git cherry-pick ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Check for conflicts
         id: check_conflicts
         run: |
           if [ "${{ steps.cherry_pick.outcome }}" == "failure" ]; then
-            echo "conflicts=true" >> $GITHUB_OUTPUT
-            echo "⚠️ Cherry-pick had conflicts"
-            git cherry-pick --abort || true
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "conflicts=true" >> $GITHUB_OUTPUT
+              echo "⚠️ Cherry-pick had conflicts — committing with conflict markers"
+              git add -A
+              git commit --no-verify -m "chore: backport hotfix #${{ github.event.pull_request.number }} (conflicts need resolution)"
+            else
+              echo "conflicts=false" >> $GITHUB_OUTPUT
+              echo "⚠️ Cherry-pick failed but no changes detected — hotfix may already be in main"
+            fi
           else
             echo "conflicts=false" >> $GITHUB_OUTPUT
             echo "✅ Cherry-pick succeeded without conflicts"
           fi
 
       - name: Push backport branch
-        if: steps.check_conflicts.outputs.conflicts == 'false'
         run: |
           git push origin backport/hotfix-${{ github.event.pull_request.number }}
 
@@ -82,7 +89,6 @@ jobs:
           script: |
             const pr = ${{ steps.create_pr.outputs.result }};
 
-            // Update branch to ensure it's up to date
             try {
               await github.rest.pulls.updateBranch({
                 owner: context.repo.owner,
@@ -93,7 +99,6 @@ jobs:
               console.log('Branch already up to date or update not needed');
             }
 
-            // Enable auto-merge using GraphQL
             await github.graphql(`
               mutation($pullRequestId: ID!) {
                 enablePullRequestAutoMerge(input: {
@@ -113,17 +118,28 @@ jobs:
 
             console.log(`✅ Enabled auto-merge for backport PR #${pr.number} (will merge via bypass)`);
 
-      - name: Create manual backport issue
+      - name: Create backport PR (conflicts - no auto-merge)
         if: steps.check_conflicts.outputs.conflicts == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            await github.rest.issues.create({
+            const prNum = context.payload.pull_request.number;
+            const title = context.payload.pull_request.title;
+
+            const { data: pr } = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `Manual backport needed: ${context.payload.pull_request.title}`,
-              body: `⚠️ **Automatic backport failed due to conflicts**\n\nHotfix PR #${context.payload.pull_request.number} could not be automatically backported to \`main\` due to merge conflicts.\n\n**Action Required:**\nPlease manually cherry-pick the changes:\n\`\`\`bash\ngit checkout main\ngit pull\ngit checkout -b backport/hotfix-${context.payload.pull_request.number}\ngit cherry-pick ${context.payload.pull_request.base.sha}..${context.payload.pull_request.head.sha}\n# Resolve conflicts\ngit push origin backport/hotfix-${context.payload.pull_request.number}\n\`\`\`\n\nThen create a PR from \`backport/hotfix-${context.payload.pull_request.number}\` to \`main\`.`,
-              labels: ['hotfix', 'manual-backport-needed']
+              title: `[Backport] ${title}`,
+              head: `backport/hotfix-${prNum}`,
+              base: 'main',
+              body: [
+                `Automatic backport of hotfix #${prNum}`,
+                ``,
+                `Original PR: #${prNum}`,
+                ``,
+                `⚠️ **This backport had conflicts during cherry-pick and requires manual resolution.**`,
+                `Auto-merge is NOT enabled — please resolve conflicts and merge manually.`
+              ].join('\n')
             });
 
-            console.log('⚠️ Created issue for manual backport due to conflicts');
+            console.log(`⚠️ Created backport PR #${pr.number} (conflicts detected, no auto-merge)`);

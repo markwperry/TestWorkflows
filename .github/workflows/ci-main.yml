@@ -59,4 +59,4 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        run: CGO_ENABLED=0 GOOS=linux go build -o server .
+        run: ./build.sh

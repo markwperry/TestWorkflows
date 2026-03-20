@@ -1,0 +1,46 @@
+name: Tag Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  tag:
+    if: github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Conventional Changelog
+        id: changelog
+        uses: TriPSs/conventional-changelog-action@v3.11.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          version-file: "./config/version.yaml"
+          version-path: "version"
+          git-message: "chore(release): {version}"
+          tag-prefix: "v"
+          output-file: "CHANGELOG.md"
+          skip-version-file: "false"
+          skip-commit: "false"
+          skip-tag: "false"
+
+      - name: Create GitHub Release
+        if: steps.changelog.outputs.skipped == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: 'v${{ steps.changelog.outputs.version }}',
+              name: 'v${{ steps.changelog.outputs.version }}',
+              body: `${{ steps.changelog.outputs.clean_changelog }}`,
+              draft: false,
+              prerelease: false
+            });
