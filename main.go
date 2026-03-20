@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -75,6 +76,20 @@ func setupRouter() *gin.Engine {
 			"original":   text,
 			"translated": translateToHillbilly(text),
 		})
+	})
+
+	r.GET("/coinflip", func(c *gin.Context) {
+		n := 1
+		if q := c.Query("n"); q != "" {
+			if parsed, err := strconv.Atoi(q); err == nil && parsed > 0 && parsed <= 1000 {
+				n = parsed
+			}
+		}
+		if n == 1 {
+			c.JSON(http.StatusOK, gin.H{"result": flipCoin()})
+		} else {
+			c.JSON(http.StatusOK, gin.H{"flips": n, "results": flipMultiple(n)})
+		}
 	})
 
 	r.GET("/version", func(c *gin.Context) {
