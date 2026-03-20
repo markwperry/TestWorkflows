@@ -39,12 +39,19 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Errorf("expected status 200, got %d", w.Code)
 	}
 
-	var body map[string]string
+	var body map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("failed to parse response body: %v", err)
 	}
 
 	if body["status"] != "ok" {
-		t.Errorf("expected 'ok', got '%s'", body["status"])
+		t.Errorf("expected 'ok', got '%v'", body["status"])
+	}
+
+	// Verify new fields are present
+	for _, field := range []string{"version", "goVersion", "memAlloc", "goroutines"} {
+		if _, exists := body[field]; !exists {
+			t.Errorf("expected field '%s' in health response", field)
+		}
 	}
 }
