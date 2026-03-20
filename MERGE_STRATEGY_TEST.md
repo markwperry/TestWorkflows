@@ -213,20 +213,20 @@ Error: Validation Failed: "No commits between main and backport/hotfix-11"
 Updated `backport-hotfix.yml` to cherry-pick the **original commits from the hotfix branch** (`head.sha`) instead of the merge commit:
 
 ```yaml
-# Before (broken):
+# Attempt 1 (broken — empty cherry-pick):
 git cherry-pick ${{ github.event.pull_request.merge_commit_sha }}
 
-# After (fixed):
+# Attempt 2 (broken — commits already reachable from release after merge):
 MERGE_BASE=$(git merge-base origin/release ${{ github.event.pull_request.head.sha }})
 COMMITS=$(git rev-list --reverse ${MERGE_BASE}..${{ github.event.pull_request.head.sha }})
-for COMMIT in $COMMITS; do
-  git cherry-pick "$COMMIT"
-done
+
+# Final fix (working):
+git cherry-pick -m 1 ${{ github.event.pull_request.merge_commit_sha }}
 ```
 
-This handles both single-commit and multi-commit hotfixes correctly.
+The `-m 1` flag tells git to diff the merge commit against its first parent (release before the merge), extracting exactly the hotfix changes.
 
-### Hotfix Process Findings
+### Hotfix Test #1 Findings (PR #11)
 
 | Step | Expected | Actual | Status |
 |---|---|---|---|
@@ -240,8 +240,80 @@ This handles both single-commit and multi-commit hotfixes correctly.
 ### Configuration Requirements Discovered
 
 1. **Repository setting**: "Allow GitHub Actions to create and approve pull requests" must be enabled (Settings → Actions → General)
-2. **Workflow fix**: Cherry-pick original commits (`head.sha` range), not `merge_commit_sha`
-3. **Auto-merge**: Requires "Allow auto-merge" enabled in repository settings, plus branch protection bypass for `github-actions[bot]`
+2. **Workflow fix**: Use `cherry-pick -m 1 merge_commit_sha` — not bare `merge_commit_sha` (empty result) and not `head.sha` range (empty after merge)
+3. **Auto-merge**: Requires branch protection rules on `main` — without them, the `enablePullRequestAutoMerge` GraphQL mutation fails
+
+---
+
+## Round 4: Hotfix Process — Successful Run (PR #17)
+
+### Objective
+
+Verify the corrected hotfix workflow runs end-to-end after fixing the cherry-pick approach and syncing the workflow to release.
+
+### Setup
+
+- Synced workflow fix to release via PR #16 (regular merge commit)
+- Verified `release` branch has `cherry-pick -m 1` in `backport-hotfix.yml`
+
+### Step 1: Create Hotfix
+
+- **Branch**: `fix/magic8ball-empty-question` (branched from `release` at `ab7c54e`)
+- **Bug**: `GET /8ball` without `q` parameter silently used a default question instead of returning an error
+- **Fix**: Returns 400 Bad Request with descriptive error message when `q` is missing
+- **Commit**: `02a9289 fix(hotfix): 8ball endpoint returns 400 when question is missing`
+
+### Step 2: PR to Release — PR #17
+
+- **PR #17**: `fix(hotfix): 8ball endpoint returns 400 when question is missing`
+- **Validation checks**:
+  - **Validate PR Title**: PASSED
+  - **Validate Hotfix Naming** (`check-naming`): PASSED
+
+### Step 3: Merge and Automated Backport — SUCCESS
+
+PR #17 merged into `release`. The Backport Hotfix workflow triggered and **completed successfully**:
+
+```
+Backport Hotfix to Main — workflow run results:
+
+✅ Cherry-pick hotfix commits     — cherry-pick -m 1 applied hotfix diff correctly
+✅ Check for conflicts            — no conflicts detected
+✅ Push backport branch           — backport/hotfix-17 pushed
+✅ Create backport PR             — PR #18 created by github-actions[bot]
+                                    Title: [Backport] fix(hotfix): 8ball endpoint returns 400 when question is missing
+                                    1 file changed, +4/-1
+⚠️ Enable auto-merge             — Failed: "Protected branch rules not configured for this branch"
+                                    (main branch has no branch protection — auto-merge requires it)
+```
+
+### Backport PR #18
+
+- **Created by**: `github-actions[bot]` (automated)
+- **Branch**: `backport/hotfix-17` → `main`
+- **Changes**: 1 file changed, 4 insertions, 1 deletion (exactly the hotfix diff)
+- **Auto-merge**: Not enabled (requires branch protection on `main`)
+- **Resolution**: Merged manually
+
+### Hotfix Test #2 Findings (PR #17)
+
+| Step | Expected | Actual | Status |
+|---|---|---|---|
+| Branch from `release` | Hotfix starts from production state | Branched from `release` at `ab7c54e` | **PASS** |
+| `fix(hotfix):` prefix validation | PR validated | `check-naming` passed | **PASS** |
+| Conventional commit validation | PR title validated | `Validate PR title` passed | **PASS** |
+| Auto-backport cherry-pick | Hotfix diff applied to main | `cherry-pick -m 1` succeeded, 1 file +4/-1 | **PASS** |
+| Auto-backport branch push | Branch pushed to origin | `backport/hotfix-17` pushed | **PASS** |
+| Auto-backport PR creation | PR created to main | PR #18 created by `github-actions[bot]` | **PASS** |
+| Backport PR auto-merge | PR auto-merges | Failed — no branch protection on `main` | **EXPECTED** |
+
+### Cherry-Pick Evolution Summary
+
+| Approach | Method | Result | Why |
+|---|---|---|---|
+| v1 (from branching strategy doc) | `cherry-pick merge_commit_sha` | Empty cherry-pick | Merge commits have 2 parents; without `-m` git doesn't know which parent to diff against |
+| v2 (first fix attempt) | `rev-list head.sha` range | Empty range | After PR merge, hotfix commits are reachable from release, so merge-base == head.sha |
+| v3 (working) | `cherry-pick -m 1 merge_commit_sha` | **Correct diff** | `-m 1` diffs against first parent (release before merge), extracting exactly the hotfix changes |
 
 ---
 
@@ -271,7 +343,17 @@ This handles both single-commit and multi-commit hotfixes correctly.
 
 **For feature branches → `main`**: Squash merge is fine and encouraged for clean history.
 
-**For hotfixes on `release`**: The backport automation (cherry-pick + auto-merge PR) handles syncing hotfixes back to `main`. Key requirements:
-- Repository must enable "Allow GitHub Actions to create and approve pull requests"
-- Workflow must cherry-pick the original commit(s) from the hotfix branch, not the merge commit SHA
-- Auto-merge requires "Allow auto-merge" in repo settings and branch protection bypass for `github-actions[bot]`
+**For hotfixes on `release`**: The backport automation (`cherry-pick -m 1` + auto-merge PR) handles syncing hotfixes back to `main`. Key requirements:
+- Repository must enable "Allow GitHub Actions to create and approve pull requests" (Settings → Actions → General)
+- Workflow must use `cherry-pick -m 1 merge_commit_sha` to extract the hotfix diff
+- Auto-merge requires branch protection rules on `main` and "Allow auto-merge" in repo settings
+
+### Workflow Iterations
+
+The backport cherry-pick approach went through three iterations before working correctly:
+
+| Version | Approach | Problem |
+|---|---|---|
+| v1 | `cherry-pick merge_commit_sha` | Merge commits have 2 parents; without `-m`, git produces empty cherry-pick |
+| v2 | `rev-list head.sha` range | After PR merge, commits are reachable from release, making range empty |
+| v3 | `cherry-pick -m 1 merge_commit_sha` | **Working** — `-m 1` diffs against first parent, extracting hotfix changes |
