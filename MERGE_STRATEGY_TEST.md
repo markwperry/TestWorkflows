@@ -165,6 +165,86 @@ a346a81 Merge branch 'release' into main
 
 ---
 
+## Round 3: Hotfix Process Test
+
+### Objective
+
+Test the full hotfix workflow: branch from `release`, fix a production bug, PR with `fix(hotfix):` prefix to `release`, verify automated validation and backport to `main`.
+
+### Step 1: Create Hotfix
+
+- **Branch**: `fix/health-check-detail` (branched from `release` at `33ab3ed`)
+- **Bug**: `/health` endpoint returned bare `{"status": "ok"}` with no diagnostic info for monitoring
+- **Fix**: Added `version`, `goVersion`, `memAlloc`, and `goroutines` to health response
+- **Commit**: `50da2f9 fix(hotfix): health endpoint returns minimal info for monitoring`
+
+### Step 2: PR to Release — PR #11
+
+- **PR #11**: `fix(hotfix): health endpoint returns minimal info for monitoring`
+- **Base**: `release` (not `main` — this is key for hotfixes)
+- **Validation checks**:
+  - **Validate PR Title**: PASSED (conventional commit format `fix(hotfix):`)
+  - **Validate Hotfix Naming** (`check-naming`): PASSED (`fix(hotfix):` prefix detected)
+
+### Step 3: Merge and Automated Backport
+
+PR #11 merged into `release`. The Backport Hotfix workflow triggered automatically.
+
+**Backport Attempt 1 — FAILED**
+```
+Error: GitHub Actions is not permitted to create or approve pull requests.
+```
+- **Cause**: Repository setting "Allow GitHub Actions to create and approve pull requests" was not enabled
+- **Fix**: Enabled the setting in Settings → Actions → General → Workflow permissions
+
+**Backport Attempt 2 (re-run) — FAILED**
+```
+Error: Validation Failed: "No commits between main and backport/hotfix-11"
+```
+- **Cause**: The workflow cherry-picked `merge_commit_sha` (the merge commit GitHub created). Cherry-picking a merge commit without the `-m` flag produces an empty result because git doesn't know which parent to diff against. The `backport/hotfix-11` branch was pushed with no actual changes vs main.
+- **Root cause**: This is the same issue documented in the myqq `backport-hotfix.yml` — the workflow was adapted from the branching strategy document which used `merge_commit_sha`, but this only works reliably with the `-m 1` flag or by cherry-picking the original commits instead.
+
+**Manual Backport — PR #12**
+- Cherry-picked the original hotfix commit `50da2f9` (from `fix/health-check-detail` branch, not the merge commit)
+- Created PR #12: `[Backport] fix(hotfix): health endpoint returns minimal info for monitoring`
+
+### Step 4: Workflow Fix
+
+Updated `backport-hotfix.yml` to cherry-pick the **original commits from the hotfix branch** (`head.sha`) instead of the merge commit:
+
+```yaml
+# Before (broken):
+git cherry-pick ${{ github.event.pull_request.merge_commit_sha }}
+
+# After (fixed):
+MERGE_BASE=$(git merge-base origin/release ${{ github.event.pull_request.head.sha }})
+COMMITS=$(git rev-list --reverse ${MERGE_BASE}..${{ github.event.pull_request.head.sha }})
+for COMMIT in $COMMITS; do
+  git cherry-pick "$COMMIT"
+done
+```
+
+This handles both single-commit and multi-commit hotfixes correctly.
+
+### Hotfix Process Findings
+
+| Step | Expected | Actual | Status |
+|---|---|---|---|
+| Branch from `release` | Hotfix starts from production state | Branched from `release` at `33ab3ed` | PASS |
+| `fix(hotfix):` prefix validation | PR blocked without prefix | `check-naming` workflow passed | PASS |
+| Conventional commit validation | PR title validated | `Validate PR title` passed | PASS |
+| Auto-backport cherry-pick | Hotfix code applied to main | Empty cherry-pick (merge_commit_sha bug) | **FAIL — FIXED** |
+| Auto-backport PR creation | PR created to main | Failed on first run (permissions), empty on second | **FAIL — FIXED** |
+| Backport PR auto-merge | PR merges without review | Not tested (manual backport used) | DEFERRED |
+
+### Configuration Requirements Discovered
+
+1. **Repository setting**: "Allow GitHub Actions to create and approve pull requests" must be enabled (Settings → Actions → General)
+2. **Workflow fix**: Cherry-pick original commits (`head.sha` range), not `merge_commit_sha`
+3. **Auto-merge**: Requires "Allow auto-merge" enabled in repository settings, plus branch protection bypass for `github-actions[bot]`
+
+---
+
 ## Conclusion
 
 | Metric | Round 1: After Squash Merge | Round 2: After Regular Merge |
@@ -191,4 +271,7 @@ a346a81 Merge branch 'release' into main
 
 **For feature branches → `main`**: Squash merge is fine and encouraged for clean history.
 
-**For hotfixes on `release`**: The existing backport automation (cherry-pick + auto-merge PR) correctly handles syncing hotfixes back to `main` without creating the squash merge problem.
+**For hotfixes on `release`**: The backport automation (cherry-pick + auto-merge PR) handles syncing hotfixes back to `main`. Key requirements:
+- Repository must enable "Allow GitHub Actions to create and approve pull requests"
+- Workflow must cherry-pick the original commit(s) from the hotfix branch, not the merge commit SHA
+- Auto-merge requires "Allow auto-merge" in repo settings and branch protection bypass for `github-actions[bot]`
