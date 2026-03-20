@@ -92,6 +92,7 @@ jobs:
 
       - name: Enable auto-merge
         if: steps.check_conflicts.outputs.conflicts == 'false'
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
@@ -107,24 +108,29 @@ jobs:
               console.log('Branch already up to date or update not needed');
             }
 
-            await github.graphql(`
-              mutation($pullRequestId: ID!) {
-                enablePullRequestAutoMerge(input: {
-                  pullRequestId: $pullRequestId,
-                  mergeMethod: SQUASH
-                }) {
-                  pullRequest {
-                    autoMergeRequest {
-                      enabledAt
+            try {
+              await github.graphql(`
+                mutation($pullRequestId: ID!) {
+                  enablePullRequestAutoMerge(input: {
+                    pullRequestId: $pullRequestId,
+                    mergeMethod: SQUASH
+                  }) {
+                    pullRequest {
+                      autoMergeRequest {
+                        enabledAt
+                      }
                     }
                   }
                 }
-              }
-            `, {
-              pullRequestId: pr.node_id
-            });
-
-            console.log(`✅ Enabled auto-merge for backport PR #${pr.number} (will merge via bypass)`);
+              `, {
+                pullRequestId: pr.node_id
+              });
+              console.log(`✅ Enabled auto-merge for backport PR #${pr.number}`);
+            } catch (error) {
+              console.log(`⚠️ Could not enable auto-merge for PR #${pr.number}: ${error.message}`);
+              console.log('This is expected if branch protection is not configured on main.');
+              console.log(`Please merge PR #${pr.number} manually.`);
+            }
 
       - name: Create backport PR (conflicts - no auto-merge)
         if: steps.check_conflicts.outputs.conflicts == 'true'
