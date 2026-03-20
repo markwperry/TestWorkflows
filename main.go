@@ -39,6 +39,17 @@ func setupRouter() *gin.Engine {
 		})
 	})
 
+	r.GET("/8ball", func(c *gin.Context) {
+		question := c.Query("q")
+		if question == "" {
+			question = "Will this release go smoothly?"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"question": question,
+			"answer":   shakeMagic8Ball(),
+		})
+	})
+
 	r.GET("/version", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"version":    version,
