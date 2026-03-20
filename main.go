@@ -88,9 +88,16 @@ func setupRouter() *gin.Engine {
 	r.GET("/coinflip", func(c *gin.Context) {
 		n := 1
 		if q := c.Query("n"); q != "" {
-			if parsed, err := strconv.Atoi(q); err == nil && parsed > 0 && parsed <= 1000 {
-				n = parsed
+			parsed, err := strconv.Atoi(q)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "parameter 'n' must be a number"})
+				return
 			}
+			if parsed < 1 || parsed > 1000 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "parameter 'n' must be between 1 and 1000"})
+				return
+			}
+			n = parsed
 		}
 		if n == 1 {
 			c.JSON(http.StatusOK, gin.H{"result": flipCoin()})
