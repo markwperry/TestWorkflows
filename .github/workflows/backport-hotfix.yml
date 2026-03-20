@@ -11,7 +11,7 @@ jobs:
     # Only run if PR was merged and title starts with 'fix(hotfix):' (case-insensitive)
     if: |
       github.event.pull_request.merged == true &&
-      contains(lower(github.event.pull_request.title), 'fix(hotfix):')
+      startsWith(github.event.pull_request.title, 'fix(hotfix):')
     runs-on: ubuntu-latest
     permissions:
       contents: write
