@@ -39,6 +39,14 @@ func setupRouter() *gin.Engine {
 		})
 	})
 
+	r.GET("/dadjoke", func(c *gin.Context) {
+		joke := getRandomDadJoke()
+		c.JSON(http.StatusOK, gin.H{
+			"setup":     joke.Setup,
+			"punchline": joke.Punchline,
+		})
+	})
+
 	r.GET("/version", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"version":    version,
